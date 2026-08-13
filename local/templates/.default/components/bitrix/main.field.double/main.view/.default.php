@@ -68,7 +68,7 @@ if (!is_numeric($normalizedValue))
 $formattedValue = number_format(
 	(float)$normalizedValue,
 	$precision,
-	',',
+	'.',
 	' '
 );
 

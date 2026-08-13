@@ -100,7 +100,7 @@ if ($value !== '')
 		$displayValue = number_format(
 			$numericValue,
 			$precision,
-			',',
+			'.',
 			' '
 		);
 	}

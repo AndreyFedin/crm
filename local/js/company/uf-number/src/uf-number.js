@@ -234,7 +234,7 @@ class NumberInput
 					.substring(0, this.precision);
 			}
 
-			result += ',' + fraction;
+			result += '.' + fraction;
 		}
 
 		return result;
