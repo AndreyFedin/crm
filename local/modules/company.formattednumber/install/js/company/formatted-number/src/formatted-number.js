@@ -1,42 +1,26 @@
 const instances = new WeakMap();
 
-class NumberInput
+class FormattedNumberInput
 {
 	constructor(options)
 	{
 		this.displayInput = options.displayInput;
 		this.valueInput = options.valueInput;
-
 		this.precision = Number.isInteger(options.precision)
-			? Math.max(0, options.precision)
-			: 2;
-
+			? Math.max(0, Math.min(12, options.precision))
+			: 0;
 		this.allowNegative = options.allowNegative !== false;
 
 		this.handleInput = this.handleInput.bind(this);
 		this.handleBlur = this.handleBlur.bind(this);
 
-		this.bindEvents();
-	}
-
-	bindEvents()
-	{
 		this.displayInput.addEventListener('input', this.handleInput);
 		this.displayInput.addEventListener('blur', this.handleBlur);
-	}
-
-	destroy()
-	{
-		this.displayInput.removeEventListener('input', this.handleInput);
-		this.displayInput.removeEventListener('blur', this.handleBlur);
-
-		instances.delete(this.displayInput);
 	}
 
 	handleInput()
 	{
 		const caretPosition = this.displayInput.selectionStart ?? 0;
-
 		const logicalCaretPosition = this.getLogicalCaretPosition(
 			this.displayInput.value,
 			caretPosition
@@ -48,8 +32,7 @@ class NumberInput
 		this.valueInput.value = this.formatCanonical(parsed, false);
 
 		this.restoreCaretPosition(logicalCaretPosition);
-
-		this.dispatchInputEvent();
+		this.dispatchInput();
 	}
 
 	handleBlur()
@@ -60,17 +43,14 @@ class NumberInput
 		{
 			this.displayInput.value = '';
 			this.valueInput.value = '';
-
-			this.dispatchInputEvent();
-			this.dispatchChangeEvent();
-
+			this.dispatchInput();
+			this.dispatchChange();
 			return;
 		}
 
 		if (this.precision > 0)
 		{
 			parsed.hasDecimal = true;
-
 			parsed.fraction = parsed.fraction
 				.padEnd(this.precision, '0')
 				.substring(0, this.precision);
@@ -84,40 +64,35 @@ class NumberInput
 		this.displayInput.value = this.formatDisplay(parsed, true);
 		this.valueInput.value = this.formatCanonical(parsed, true);
 
-		this.dispatchInputEvent();
-		this.dispatchChangeEvent();
+		this.dispatchInput();
+		this.dispatchChange();
 	}
 
 	parse(rawValue)
 	{
-		let value = String(rawValue ?? '');
-
-		value = value
+		let value = String(rawValue ?? '')
 			.replace(/\u00A0/g, ' ')
 			.replace(/\u202F/g, ' ')
 			.trim();
 
 		if (value === '')
 		{
-			return this.getEmptyValue();
+			return this.emptyValue();
 		}
 
-		const negative = this.allowNegative && /^\s*-/.test(value);
+		const negative = this.allowNegative && value.startsWith('-');
 
 		value = value.replace(/\s+/g, '');
 		value = value.replace(/[^\d.,]/g, '');
 
 		if (value === '')
 		{
-			return this.getEmptyValue();
+			return this.emptyValue();
 		}
 
-		let decimalPosition = -1;
-
-		if (this.precision > 0)
-		{
-			decimalPosition = this.findDecimalPosition(value);
-		}
+		const decimalPosition = this.precision > 0
+			? this.findDecimalPosition(value)
+			: -1;
 
 		let integer = '';
 		let fraction = '';
@@ -161,46 +136,39 @@ class NumberInput
 
 	findDecimalPosition(value)
 	{
-		const lastComma = value.lastIndexOf(',');
 		const lastDot = value.lastIndexOf('.');
+		const lastComma = value.lastIndexOf(',');
 
-		if (lastComma === -1 && lastDot === -1)
+		if (lastDot === -1 && lastComma === -1)
 		{
 			return -1;
 		}
 
-		if (lastComma !== -1 && lastDot !== -1)
+		if (lastDot !== -1 && lastComma !== -1)
 		{
-			return Math.max(lastComma, lastDot);
+			return Math.max(lastDot, lastComma);
 		}
 
-		const separator = lastComma !== -1 ? ',' : '.';
+		const separator = lastDot !== -1 ? '.' : ',';
 		const position = value.lastIndexOf(separator);
-
-		const count = value
+		const separatorCount = value
 			.split('')
 			.filter((character) => character === separator)
 			.length;
 
-		if (count === 1)
+		if (separatorCount === 1)
 		{
 			return position;
 		}
 
-		const digitsAfterSeparator = value.length - position - 1;
+		const digitsAfter = value.length - position - 1;
 
-		if (
-			digitsAfterSeparator >= 0
-			&& digitsAfterSeparator <= this.precision
-		)
-		{
-			return position;
-		}
-
-		return -1;
+		return digitsAfter <= this.precision
+			? position
+			: -1;
 	}
 
-	formatDisplay(parsed, normalizePrecision = false)
+	formatDisplay(parsed, normalizePrecision)
 	{
 		if (parsed.empty)
 		{
@@ -208,19 +176,9 @@ class NumberInput
 		}
 
 		let integer = parsed.integer || '0';
+		integer = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
-		integer = integer.replace(
-			/\B(?=(\d{3})+(?!\d))/g,
-			' '
-		);
-
-		let result = '';
-
-		if (parsed.negative)
-		{
-			result += '-';
-		}
-
+		let result = parsed.negative ? '-' : '';
 		result += integer;
 
 		if (this.precision > 0 && parsed.hasDecimal)
@@ -240,26 +198,17 @@ class NumberInput
 		return result;
 	}
 
-	formatCanonical(parsed, normalizePrecision = false)
+	formatCanonical(parsed, normalizePrecision)
 	{
 		if (parsed.empty)
 		{
 			return '';
 		}
 
-		let result = '';
-
-		if (parsed.negative)
-		{
-			result += '-';
-		}
-
+		let result = parsed.negative ? '-' : '';
 		result += parsed.integer || '0';
 
-		if (
-			this.precision > 0
-			&& parsed.hasDecimal
-		)
+		if (this.precision > 0 && parsed.hasDecimal)
 		{
 			let fraction = parsed.fraction;
 
@@ -279,7 +228,7 @@ class NumberInput
 		return result;
 	}
 
-	getEmptyValue()
+	emptyValue()
 	{
 		return {
 			empty: true,
@@ -292,9 +241,8 @@ class NumberInput
 
 	getLogicalCaretPosition(value, caretPosition)
 	{
-		const prefix = value.substring(0, caretPosition);
-
-		return prefix
+		return value
+			.substring(0, caretPosition)
 			.replace(/[\s\u00A0\u202F]/g, '')
 			.length;
 	}
@@ -302,15 +250,12 @@ class NumberInput
 	restoreCaretPosition(logicalPosition)
 	{
 		const value = this.displayInput.value;
-
 		let logicalCounter = 0;
 		let realPosition = 0;
 
 		for (; realPosition < value.length; realPosition++)
 		{
-			const character = value[realPosition];
-
-			if (!/[\s\u00A0\u202F]/.test(character))
+			if (!/[\s\u00A0\u202F]/.test(value[realPosition]))
 			{
 				logicalCounter++;
 			}
@@ -324,67 +269,54 @@ class NumberInput
 
 		try
 		{
-			this.displayInput.setSelectionRange(
-				realPosition,
-				realPosition
-			);
+			this.displayInput.setSelectionRange(realPosition, realPosition);
 		}
 		catch (e)
 		{
 		}
 	}
 
-	dispatchInputEvent()
+	dispatchInput()
 	{
 		this.valueInput.dispatchEvent(
-			new Event(
-				'input',
-				{
-					bubbles: true,
-				}
-			)
+			new Event('input', {bubbles: true})
 		);
 	}
 
-	dispatchChangeEvent()
+	dispatchChange()
 	{
 		this.valueInput.dispatchEvent(
-			new Event(
-				'change',
-				{
-					bubbles: true,
-				}
-			)
+			new Event('change', {bubbles: true})
 		);
+	}
+
+	destroy()
+	{
+		this.displayInput.removeEventListener('input', this.handleInput);
+		this.displayInput.removeEventListener('blur', this.handleBlur);
+		instances.delete(this.displayInput);
 	}
 }
 
 export function init(options)
 {
-	const displayInput = document.getElementById(
-		options.displayInputId
-	);
-
-	const valueInput = document.getElementById(
-		options.valueInputId
-	);
+	const displayInput = document.getElementById(options.displayInputId);
+	const valueInput = document.getElementById(options.valueInputId);
 
 	if (!displayInput || !valueInput)
 	{
 		return null;
 	}
 
-	const existingInstance = instances.get(displayInput);
-
-	if (existingInstance)
+	if (instances.has(displayInput))
 	{
-		return existingInstance;
+		return instances.get(displayInput);
 	}
 
-	const instance = new NumberInput({
+	const instance = new FormattedNumberInput({
 		displayInput,
 		valueInput,
-		precision: Number(options.precision ?? 2),
+		precision: Number(options.precision ?? 0),
 		allowNegative: options.allowNegative !== false,
 	});
 

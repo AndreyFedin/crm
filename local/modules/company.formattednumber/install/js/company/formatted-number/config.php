@@ -6,7 +6,7 @@ if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true)
 }
 
 return [
-	'js' => './dist/uf-number.bundle.js',
+	'js' => './dist/formatted-number.bundle.js',
 	'rel' => [
 		'main.core',
 	],
