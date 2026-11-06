@@ -1,4 +1,28 @@
 <?php
+
+use Bitrix\Main\Type\Date;
+use Bitrix\Main\Type\DateTime;
+
+function getMinDate(?Date $date1, ?Date $date2): ?DateTime
+{
+    $dates = array_filter([$date1, $date2]);
+
+    if (empty($dates)) {
+        return null;
+    }
+
+    $timestamps = array_map(
+        static fn(Date $date): int => (new DateTime(
+            $date->format('d.m.Y') . ' 00:00:00',
+            'd.m.Y H:i:s'
+        ))->getTimestamp(),
+        $dates
+    );
+
+    return DateTime::createFromTimestamp(min($timestamps));
+}
+
+
 function findContactId(string $fio, string $email): ?int
 {
     if (!\Bitrix\Main\Loader::includeModule('crm')) {
