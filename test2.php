@@ -3,54 +3,156 @@
 
 use Bitrix\Main\Type\DateTime;
 
-public function getSchedule(
-        ?DateTime $dateStart,
-        int $count,
-        int $period,
-        array $currentNumbers = []
-): array {
-    if ($dateStart === null || $count <= 0) {
-        return [];
-    }
-
-    $schedule = [];
-
+/**
+ * Добавляет платёж по сделке, создаёт задачу и уведомление.
+ *
+ * @param array $arDeal Данные сделки
+ * @param array $arSums Данные суммы платежа
+ * @param int $number Номер платежа
+ * @param string $dateModify Дата платежа
+ *
+ * @return bool
+ */
+public function addPaymentsByDeal(
+        array $arDeal,
+        array $arSums,
+        int $number = 1,
+        string $dateModify = ''
+): bool {
     try {
-        if ($period <= 0) {
-            throw new \InvalidArgumentException(
-                    'Период должен быть больше нуля'
-            );
-        }
+        $dateModify = trim($dateModify);
 
-        $date = clone $dateStart;
+        $date = $this->preparePaymentDate($dateModify);
 
-        $interval = match ($period) {
-            30 => '+1 month',
-            90 => '+3 months',
-            180 => '+6 months',
-            360 => '+12 months',
-            default => "+{$period} days",
-        };
-
-        $excludedNumbers = array_fill_keys(
-                array_map('intval', $currentNumbers),
-                true
+        $fields = $this->buildPaymentFields(
+                $arDeal,
+                $arSums,
+                $number,
+                $date
         );
 
-        $number = 1;
-
-        while (count($schedule) < $count) {
-            if (!isset($excludedNumbers[$number])) {
-                $schedule[$number] = $date->format('d.m.Y');
-                $date->add($interval);
-            }
-
-            $number++;
+        if (!$this->savePayment($fields, (int)$arDeal['ID'], $number)) {
+            return false;
         }
+
+        if ($dateModify !== '') {
+            $this->createPaymentTask($arDeal, $number, $date);
+        }
+
+        self::addNotify($arDeal, $dateModify, $number);
+
+        $this->obLogger->info('Платёж добавлен', [
+                'dealId' => $arDeal['ID'],
+                'number' => $number,
+                'date' => $dateModify,
+        ]);
+
+        return true;
 
     } catch (\Throwable $e) {
         $this->obLogger->exception($e);
+
+        return false;
+    }
+}
+
+/**
+ * Подготавливает дату платежа.
+ */
+private function preparePaymentDate(string $date): DateTime
+{
+    if ($date === '') {
+        return new DateTime();
     }
 
-    return $schedule;
+    if (DateTime::isCorrect($date, 'd.m.Y')) {
+        return new DateTime($date . ' 00:00:00', 'd.m.Y H:i:s');
+    }
+
+    if (!DateTime::isCorrect($date, 'd.m.Y H:i:s')) {
+        throw new \InvalidArgumentException(
+                'Некорректная дата платежа: ' . $date
+        );
+    }
+
+    return new DateTime($date, 'd.m.Y H:i:s');
+}
+
+/**
+ * Формирует поля платежа.
+ */
+private function buildPaymentFields(
+        array $arDeal,
+        array $arSums,
+        int $number,
+        DateTime $date
+): array {
+    $dealId = (int)$arDeal['ID'];
+
+    return [
+            'UF_CRM_DATE_EXPECTED' => $date,
+            'UF_CRM_SUM' => $arSums['SUM'],
+            'UF_CRM_INDEX' => $number,
+
+            $this->obFactory->getParentField(
+                    \CCrmOwnerType::DealName
+            ) => $dealId,
+
+            'CATEGORY_ID' => $this->obFactory
+                    ->getCategoryIdByDealId($dealId),
+
+            'ASSIGNED_BY_ID' => $arDeal['ASSIGNED_BY_ID'],
+            'CREATED_BY' => $this->userId,
+    ];
+}
+
+/**
+ * Сохраняет платёж.
+ */
+private function savePayment(
+        array $fields,
+        int $dealId,
+        int $number
+): bool {
+    $result = $this->addPayment($fields);
+
+    if ($result->isSuccess()) {
+        return true;
+    }
+
+    $this->obLogger->error('Ошибка добавления платежа', [
+            'dealId' => $dealId,
+            'number' => $number,
+            'errors' => $result->getErrorMessages(),
+    ]);
+
+    return false;
+}
+
+/**
+ * Создаёт задачу-напоминание по платежу.
+ */
+private function createPaymentTask(
+        array $arDeal,
+        int $number,
+        DateTime $date
+): void {
+    $dateFormatted = $date->format('d.m.Y H:i:s');
+
+    $task = new Task();
+
+    $task->createTask([
+            'TITLE' => sprintf(
+                    'Платеж по сделке %s_%d',
+                    $arDeal['TITLE'],
+                    $number
+            ),
+            'RESPONSIBLE_ID' => $arDeal['ASSIGNED_BY_ID'],
+            'DEADLINE' => $dateFormatted,
+            'START_DATE_PLAN' => $dateFormatted,
+            'UF_CRM_TASK' => [
+                    'D_' . $arDeal['ID'],
+            ],
+            'TAGS' => ['crm'],
+    ]);
 }
