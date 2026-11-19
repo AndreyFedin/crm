@@ -3,6 +3,50 @@
 use Bitrix\Main\Type\Date;
 
 /**
+ * Частичное сторнирование платежа.
+ *
+ * @param int $paymentId ID исходного платежа
+ * @param string $date Дата сторно (d.m.Y)
+ * @param float $sum Сумма частичного сторно
+ *
+ * @return array
+ */
+public function partStorno(
+    int $paymentId,
+    string $date,
+    float $sum
+): array {
+    $fields = [];
+
+    try {
+        [$item, $payment, $deal] = $this->getStornoContext($paymentId);
+
+        $fields = array_merge(
+            $this->getPartialStornoFields($payment),
+            $this->buildStornoFields($deal, $date),
+            [
+                'UF_CRM_SUM' => $sum,
+                'UF_CRM_AGENT_COMMENT_1' => 'Согласовано',
+            ]
+        );
+
+        $newItem = $this->obFactory->createItem($fields);
+
+        $this->saveStornoItem(
+            $newItem,
+            $fields,
+            $paymentId,
+            'Частичное сторно'
+        );
+
+    } catch (\Throwable $e) {
+        $this->obLogger->exception($e);
+    }
+
+    return $fields;
+}
+
+/**
  * Формирует общие поля сторнирования.
  *
  * @param array $deal Данные сделки
