@@ -1,5 +1,50 @@
 <?php
 
+use Bitrix\Main\Type\Date;
+
+/**
+ * Формирует общие поля сторнирования.
+ *
+ * @param array $deal Данные сделки
+ * @param string $date Дата сторно
+ *
+ * @return array
+ */
+private function buildStornoFields(
+    array $deal,
+    string $date
+): array {
+    if (!Date::isCorrect($date, 'd.m.Y')) {
+        throw new \InvalidArgumentException(
+            "Некорректная дата сторно: {$date}"
+        );
+    }
+
+    return [
+        'UF_CRM_PERIOD_REVERSAL' => (new Date(
+            $date,
+            'd.m.Y'
+        ))->format('d.m.Y'),
+
+        'UF_CRM_STORNO_POLICY_NUMBER' =>
+            $deal['UF_CRM_1476258865'] ?? null,
+
+        'UF_CRM_STORNO_DEAL_KV_PERCENT' =>
+            (float)($deal['UF_CRM_1476258847'] ?? 0),
+
+        'UF_CRM_STORNO_DEAL_KV' =>
+            (float)($deal['OPPORTUNITY'] ?? 0),
+
+        'UF_CRM_STORNO_DEAL_SP' =>
+            (float)($deal['UF_CRM_1476258721'] ?? 0),
+
+        'UF_CRM_STORNO_DEAL_SUM_INSURED' =>
+            (float)($deal['UF_CRM_1476258434'] ?? 0),
+
+        'UF_CRM_PARTNER_COMMENT_1' => 'Сторно',
+    ];
+}
+
 /**
  * Полное сторнирование платежа.
  *
